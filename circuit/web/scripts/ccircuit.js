@@ -10,13 +10,13 @@ class CComponent {
 	update(){}
 
 	createInputNode(name){
-		let node = new CNode(name, CNode.INPUT, this);
+		let node = new CNode(name, CNode.INPUT, this.inputs.length, this);
 		this.inputs.push(node);
 		return node;
 	}
 
 	createOutputNode(name){
-		let node = new CNode(name, CNode.OUTPUT, this);
+		let node = new CNode(name, CNode.OUTPUT, this.outputs.length, this);
 		this.outputs.push(node);
 		return node;
 	}
@@ -26,7 +26,7 @@ class CComponent {
 			n.reset();
 		}
 		for (let i = 0; i < arr.length; i++){
-			this.inputs[i].write(arr[i]);
+			this.getNode(i).write(arr[i]);
 		}
 		this.update();
 		return this.output();
@@ -34,8 +34,8 @@ class CComponent {
 
 	output(){
 		let output = []
-		for (let i = 0; i < this.outputs.length; i++){
-			output.push(this.outputs[i].read());
+		for (let i = this.inputs.length; i < this.inputs.length+this.outputs.length; i++){
+			output.push(this.getNode(i).read());
 		}
 		return output;
 	}
@@ -62,9 +62,8 @@ class CComponent {
 	toJSON(){
 		return {
 			name: this.name,
-			nodes: this.inputs.concat(this.outputs).map((e)=>{return e.toJSON()}),
-			inputs: this.inputs.map((e)=>{return e.id}),
-			outputs: this.outputs.map((e)=>{return e.id}),
+			inputs: this.inputs.map((e)=>{return [e.id, e.name]}),
+			outputs: this.outputs.map((e)=>{return [e.id, e.name]}),
 		};
 	}
 
@@ -117,15 +116,14 @@ class IO extends CComponent{
 
 class CCircuit extends CComponent{
 
-	static components = {
-		'IO': (e)=>{return new IO()},
-		'AND': (e)=>{return new AND()},
-		'NOT': (e)=>{return new NOT()},
-	};
+	static components = {};
 
 	static fromJSON(comp_name_or_json){
 		if (typeof comp_name_or_json === 'string'){
-			return CCircuit.components[comp_name_or_json]?.();
+			if (comp_name_or_json === 'AND') return new AND();
+			else if (comp_name_or_json === 'NOT') return new NOT();
+			else if (comp_name_or_json === 'IO') return new	IO();
+			return CCircuit.fromJSON(CCircuit.components[comp_name_or_json]);
 		}
 		let json = comp_name_or_json;
 		let circuit = new CCircuit(json.name);
@@ -133,16 +131,26 @@ class CCircuit extends CComponent{
 			let c = CCircuit.fromJSON(comp);
 			if (c){
 				circuit.components.push(c);
+				for (let n of c.inputs){
+					n._component = c;
+				}
+				for (let n of c.outputs){
+					n._component = c;
+				}
 			}
 			else{
 				console.log('Component '+comp+' nao encontrado')
 			}
 		}
 		for (let id of json.inputs){
-			circuit.inputs.push(circuit.components[id[0]].getNode(id[1]));
+			let n = circuit.components[id[0]].getNode(id[1]);
+			n.name = id[2];
+			circuit.inputs.push(n);
 		}
 		for (let id of json.outputs){
-			circuit.outputs.push(circuit.components[id[0]].getNode(id[1]));
+			let n = circuit.components[id[0]].getNode(id[1]);
+			n.name = id[2];
+			circuit.outputs.push(n);
 		}
 		for (let con of json.connections){
 			let n1 = circuit.getNode(con[0]);
@@ -151,9 +159,7 @@ class CCircuit extends CComponent{
 				console.err("ERRO AO CONECTAR NODES");
 			}
 		}
-		CCircuit.components[json.name] = ()=>{
-			return CCircuit.fromJSON(json);
-		}
+		CCircuit.components[json.name] = json;
 		return circuit;
 	}
 
@@ -162,20 +168,23 @@ class CCircuit extends CComponent{
 		this.inputs = [];
 		this.outputs = [];
 		this.components = components??[];
-		this._inputs_components = [];
-		this._outputs_components = [];
+		this._inputs_i = [];
+		this._outputs_i = [];
 		//find outputs and inputs
 		for (let ci=0; ci < this.components.length; ci++){
-			for (let n of this.components[ci].getNodes()){
-				if (n.type == CNode.OUTPUT){
-					if (n.connections.length == 0){
-						this.outputs.push(n);
-						this._outputs_components.push(ci);
-					}
+			let c = this.components[ci];
+			for (let i = 0; i < c.inputs.length; i++){
+				let n = c.inputs[i];
+				n._component = c;
+				if (n._inputs.length == 0){
+					this.inputs.push([ci, i, n.name]);
 				}
-				else if (n._inputs.length == 0){
-					this.inputs.push(n);
-					this._inputs_components.push(ci);
+			}
+			for (let i = 0; i < c.outputs.length; i++){
+				let n = c.outputs[i];
+				n._component = c;
+				if (n.connections.length == 0){
+					this.outputs.push([ci, i+c.inputs.length, n.name]);
 				}
 			}
 		}
@@ -185,19 +194,24 @@ class CCircuit extends CComponent{
 		if (ni instanceof Array){
 			return this.components[ni[0]].getNode(ni[1]);
 		}
-		return super.getNode(ni);
+		let n = super.getNode(ni);
+		if (n){
+			if (n instanceof CNode) return n;
+			return this.getNode(n);
+		}
+		return n;
 	}
 
 	connections(){
 		let connections = [];
-		for (let c of this.components){
-			let c_index = this.components.indexOf(c);
-			for (let n of c.getNodes()){
-				if (this.outputs.indexOf(n) == -1){
-					for (let con of n.connections){
-						connections.push([[c_index, n.id],
-							[this.components.indexOf(con._component), con.id]]);
-					}
+		for (let ci = 0; ci < this.components.length; ci++){
+			let c = this.components[ci];
+			for (let ni = 0; ni < c.outputs.length; ni++){
+				let n = c.outputs[ni];
+				let n1code = [ci, c.inputs.length+ni];
+				for (let con of n.connections){
+					let n2code = [this.components.indexOf(con._component), con._component.inputs.indexOf(con)]
+					connections.push([n1code, n2code]);
 				}
 			}
 		}
@@ -221,37 +235,17 @@ class CCircuit extends CComponent{
 	}
 
 	toJSON(){
-		let name = this.name;
-		let components = this.components.map((e)=>{return e.name});
-		let connections = this.connections();
-		let inputs = [];
-		for (let i=0;i<this.inputs.length;i++){
-			inputs.push([this._inputs_components[i], this.inputs[i].id])
-		}
-		let outputs = [];
-		for (let i=0;i<this.outputs.length;i++){
-			outputs.push([this._outputs_components[i], this.outputs[i].id])
-		}
-
 		return {
-			name: name,
-			components: components,
-			connections: connections,
-			inputs: inputs,
-			outputs: outputs,
+			name: this.name,
+			components: this.components.map((e)=>{return e.name}),
+			connections: this.connections(),
+			inputs: this.inputs.map(e=>{return [e[0], e[1], this.getNode(e)?.name]}),
+			outputs: this.outputs.map(e=>{return [e[0], e[1], this.getNode(e)?.name]}),
 		};
 	}
 }
 
-function assertEqual(a, b){
-	if (a == b){
-		return true;
-	}
-	else{
-		throw "ERROR";
-	}
-	return false;
-}
+
 
 function test(){
 	A = new IO();
@@ -279,11 +273,40 @@ function test(){
 	XOR.input([1,0]); XOR.update(); if(XOR.output()[0]!=1)throw"ERROR";
 	XOR.input([0,1]); XOR.update(); if(XOR.output()[0]!=1)throw"ERROR";
 	XOR.input([1,1]); XOR.update(); if(XOR.output()[0]!=0)throw"ERROR";
+	xor = CCircuit.fromJSON(XOR.toJSON());
+	xor.input([0,0]); xor.update(); if(xor.output()[0]!=0)throw"ERROR";
+	xor.input([1,0]); xor.update(); if(xor.output()[0]!=1)throw"ERROR";
+	xor.input([0,1]); xor.update(); if(xor.output()[0]!=1)throw"ERROR";
+	xor.input([1,1]); xor.update(); if(xor.output()[0]!=0)throw"ERROR";
 
-	XOR2 = CCircuit.fromJSON(XOR.toJSON());
-	XOR2.input([0,0]); XOR2.update(); if(XOR2.output()[0]!=0)throw"ERROR";
-	XOR2.input([1,0]); XOR2.update(); if(XOR2.output()[0]!=1)throw"ERROR";
-	XOR2.input([0,1]); XOR2.update(); if(XOR2.output()[0]!=1)throw"ERROR";
-	XOR2.input([1,1]); XOR2.update(); if(XOR2.output()[0]!=0)throw"ERROR";
+	n3 = new NOT();
+	n4 = new NOT(); 
+	and3 = new AND();
+	n3.outputs[0].connect(and3.inputs[0]);
+	n4.outputs[0].connect(and3.inputs[1]);
+	NOR = new CCircuit('NOR', [n3, n4, and3]);
+	NOR.input([0,0]); NOR.update(); if(NOR.output()[0]!=1)throw"ERROR";
+	NOR.input([1,0]); NOR.update(); if(NOR.output()[0]!=0)throw"ERROR";
+	NOR.input([0,1]); NOR.update(); if(NOR.output()[0]!=0)throw"ERROR";
+	NOR.input([1,1]); NOR.update(); if(NOR.output()[0]!=0)throw"ERROR";
+	nor = CCircuit.fromJSON(NOR.toJSON());
+	nor.input([0,0]); nor.update(); if(nor.output()[0]!=1)throw"ERROR";
+	nor.input([1,0]); nor.update(); if(nor.output()[0]!=0)throw"ERROR";
+	nor.input([0,1]); nor.update(); if(nor.output()[0]!=0)throw"ERROR";
+	nor.input([1,1]); nor.update(); if(nor.output()[0]!=0)throw"ERROR";
+	NOR2 = CCircuit.fromJSON(NOR.toJSON());
+	n5 = new NOT();
+	NOR2.outputs[0].connect(n5.inputs[0]);
+	OR = new CCircuit('OR', [NOR2, n5]);
+	OR.input([0,0]); OR.update(); if(OR.output()[0]!=0)throw"ERROR";
+	OR.input([1,0]); OR.update(); if(OR.output()[0]!=1)throw"ERROR";
+	OR.input([0,1]); OR.update(); if(OR.output()[0]!=1)throw"ERROR";
+	OR.input([1,1]); OR.update(); if(OR.output()[0]!=1)throw"ERROR";
+	or = CCircuit.fromJSON(OR.toJSON());
+	or.input([0,0]); or.update(); if(or.output()[0]!=0)throw"ERROR";
+	or.input([1,0]); or.update(); if(or.output()[0]!=1)throw"ERROR";
+	or.input([0,1]); or.update(); if(or.output()[0]!=1)throw"ERROR";
+	or.input([1,1]); or.update(); if(or.output()[0]!=1)throw"ERROR";
+
 }
 test();

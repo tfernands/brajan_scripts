@@ -4,12 +4,10 @@ class CNode {
 	static INPUT = 0;
 	static OUTPUT = 1;
 
-	static ID_COUNTER = 0;
-
-	constructor(name, type, component){
+	constructor(name, type, id, component){
 		this.name = name;
 		this.type = type;
-		this.id = component._id_counter++;
+		this.id = id;
 		this.connections = [];
 		this.state = 0;
 		this.events = {};

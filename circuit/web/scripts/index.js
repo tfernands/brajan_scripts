@@ -1,14 +1,8 @@
 
 let components = []
 
-let modules = {
-  IO: 'IO',
-  NOT: 'NOT',
-  AND: 'AND',
-}
-
 function save(e){
-  let bb = new Blob([JSON.stringify(modules)], { type: 'text/plain' });
+  let bb = new Blob([JSON.stringify(CCircuit.components)], { type: 'text/plain' });
   var a = document.createElement('a');
   a.download = 'Logic_Gates.json';
   a.href = window.URL.createObjectURL(bb);
@@ -19,10 +13,10 @@ function load(files) {
   var file = files[0];
   var reader = new FileReader();
   reader.onload = function(progressEvent){
-    modules = JSON.parse(this.result);
+    CCircuit.components = JSON.parse(this.result);
     document.getElementById('drawer').innerHTML="";
-    for (const key in modules) {
-      if (key) createModule(key, modules[key]);
+    for (const key in CCircuit.components) {
+      if (key) createModule(key, CCircuit.components[key]);
     }
   };
   reader.readAsText(file); 
@@ -45,20 +39,17 @@ function createModule(module_name, module_json){
       }
       return -1;
     });
-
     json = (new CCircuit(name, components.map(e=>{return e.ccomp}))).toJSON();
+    CCircuit.components[json.name] = json;
     for (let c of components) c.remove();
     components = [];
   } 
-  name = name.toUpperCase();
-  modules[name] = json;
-  document.cookie='thales';
   let drawer = document.getElementById("drawer");
   let btn = document.createElement('button');
   btn.setAttribute('id','d'+drawer.children.length);
   btn.setAttribute('draggable','true');
   btn.innerHTML = name;
-  btn.onclick = (e)=>{addComponent(modules[e.path[0].innerHTML])};
+  btn.onclick = (e)=>{addComponent(e.path[0].innerHTML)};
   try{
     btn.ondragstart = dragStart;
     btn.ondragover= allowDrop;
@@ -175,7 +166,7 @@ function workspace_drop(e){
   e.preventDefault();
   let data = e.dataTransfer.getData("Text");
   let dragged = document.getElementById(data);
-  let component = addComponent(modules[dragged.innerHTML]);
+  let component = addComponent(dragged.innerHTML);
   let offsetRect = component.element.parentElement.getBoundingClientRect();
   let rect = component.element.getBoundingClientRect();
   component.element.style.top=(e.clientY-offsetRect.y-rect.height/2)+'px';
