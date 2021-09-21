@@ -8,7 +8,6 @@ class GNode {
     this.element.setAttribute('class', 'io tooltip');
     this.element.setAttribute('type', cnode.type);
     this.element.setAttribute('id', cnode.id);
-    this.element.setAttribute('name', cnode.name);
     this.element.setAttribute('state', cnode.state);
 
     let tooltip = document.createElement('p');
@@ -16,10 +15,10 @@ class GNode {
 
     tooltip.setAttribute('class','tooltiptext '+(cnode.type==CNode.INPUT?'tooltip-right':'tooltip-left'));
     tooltip.setAttribute('contenteditable',"true");
-    tooltip.innerHTML = this.cnode.name;
+    tooltip.innerHTML = this.cnode.id;
     tooltip.addEventListener("input", function() {
-      this.cnode.name = tooltip.innerHTML;
-      tooltip.innerHTML = this.cnode.name;
+      this.cnode.id = tooltip.innerHTML;
+      tooltip.innerHTML = this.cnode.id;
     }, false);
 
     this.element.addEventListener('contextmenu', function(ev) {
@@ -29,10 +28,10 @@ class GNode {
       let form = pop.querySelector('form');
       let input = document.getElementById('io_name');
       input.focus();
-      input.value = cnode.name;
+      input.value = cnode.id;
       form.onsubmit = event=>{
         event.preventDefault();
-        cnode.name = input.value;
+        cnode.id = input.value;
         tooltip.innerHTML = input.value;
         document.getElementById('id02').style.display='none';
         return false;
@@ -44,7 +43,7 @@ class GNode {
     this.cnode.gnode = this;
     this.paths = []
 
-    this.cnode.addEventListener('stateChange', ()=>{
+    this.cnode.addEventListener('statechange', ()=>{
       this.element.setAttribute('state', this.cnode.read());
       for (let p of this.paths){
         p.updateState();
@@ -55,7 +54,7 @@ class GNode {
       this.element.style.cursor = 'pointer';
       this.element.addEventListener('click', (e)=>{
         if (e.path[0] == this.element &&
-            this.cnode._inputs.length == 0 &&
+            this.cnode.input == null &&
             !GConnection.connection_creation_mode){
           this.changeState();
           updateComponents();
@@ -191,6 +190,7 @@ class GConnection {
       this.updatePosition();
       this.gnode1.paths.push(this);
       this.gnode2.paths.push(this);
+      this.gnode2.cnode.addEventListener('disconnected', ()=>{this.disconnect()})
       GConnection.createConnectionEnd();
       return true;
     }

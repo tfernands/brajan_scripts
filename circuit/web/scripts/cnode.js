@@ -1,38 +1,46 @@
+// Events ["connected", "disconnected", "statechange"]
 
 class CNode {
 
 	static INPUT = 0;
 	static OUTPUT = 1;
 
-	constructor(name, type, id, component){
-		this.name = name;
-		this.type = type;
+	constructor(id, type, component){
 		this.id = id;
+		if (type != CNode.INPUT && type != CNode.OUTPUT){
+			throw "Node type must be CNode.INPUT or CNode.OUTPUT";
+		}
+		this.type = type;
 		this.connections = [];
 		this.state = 0;
 		this.events = {};
-		this._inputs = [];
+		this.input = null;
 		this._component = component;
 	}
 
 	connect(node){
 		if (node instanceof CNode){
 			if (this.type == CNode.OUTPUT && node.type == CNode.INPUT){
+				if (node.input != null){
+					node.input.disconnect(node);
+				}
 				if (this.connections.indexOf(node) == -1 && node.connections.indexOf(this) == -1){
 					this.connections.push(node);
-					node._inputs.push(this);
+					node.input = this;
 					node.checkStateChange();
-					this.connectEvent(this, node);
+					this._dispatchEvent('connected');
+					node._dispatchEvent('connected')
 					return true;
 				}
 			}
 			else if (this.type == CNode.INPUT && node.type == CNode.OUTPUT){
-				let connected = node.connect(this);
-				if (connected) this.connectEvent(node, this);
-				return connected;
+				return node.connect(this);
+			}
+			else{
+				throw "Can not create connections between nodes of the same type";
 			}
 		}	
-		return false;
+		throw "TypeError 'node' are not a CNode";
 	}
 
 	disconnect(node){
@@ -40,16 +48,15 @@ class CNode {
 			let i = this.connections.indexOf(node);
 			if (i!=-1){
 				this.connections.splice(i,1);
-				node._inputs.splice(node._inputs.indexOf(this),1);
+				node.input = null;
 				node.checkStateChange();
-				this.disconectEvent(this, node);
+				this._dispatchEvent('disconnected');
+				node._dispatchEvent('disconnected');
 				return true;
 			}
 		}
 		else if (this.type == CNode.INPUT && node.type == CNode.OUTPUT){
-			let disconnected = node.disconnect(this);
-			if (disconnected) this.disconectEvent(node, this);
-			return disconnected;
+			return node.disconnect(this);
 		}
 		return false;
 	}
@@ -58,9 +65,7 @@ class CNode {
 		for (let n of this.connections){
 			this.disconnect(n);
 		}
-		for (let n of this._inputs){
-			this.disconnect(n);
-		}
+		this.input?.disconnect?.(this);
 	}
 
 	reset(){
@@ -68,13 +73,12 @@ class CNode {
 	}
 
 	checkStateChange(){
-		for (let n of this._inputs){
-			if (n.state==1){
-				this.write(1);
-				return;
-			}
+		if (this.input == null){
+			this.write(0);
 		}
-		this.write(0);
+		else{
+			this.write(this.input.read());
+		}
 	}
 
 	read(){
@@ -89,16 +93,8 @@ class CNode {
 			for (let n of this.connections){
 				n.checkStateChange();
 			}
-			this._dispatchEvent('stateChange');
+			this._dispatchEvent('statechange');
 		}
-	}
-
-	connectEvent(e){
-
-	}
-
-	disconectEvent(e){
-
 	}
 
 	addEventListener(event_name, callback){
@@ -120,12 +116,16 @@ class CNode {
 
 	toJSON(){
 		return {
-			name: this.name,
-			type: this.type,
 			id: this.id,
+			type: this.type,
 			state: this.state,
 			connection: this.connections.map(e=>{return e.id}),
 		};
+	}
+
+	toString(){
+		let strType = this.type==CNode.INPUT?"INPUT":"OUTPUT";
+		return "{id:"+this.id+", type:"+strType+", state:"+this.read()+"}"
 	}
 
 }
